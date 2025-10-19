@@ -25,7 +25,13 @@ export async function synthesizeSpeech({ text, emotion, voiceId, format = "audio
     const message = err instanceof Error ? err.message : String(err);
     // Provide actionable hint if it's a network issue
     if (message.toLowerCase().includes("network error") || message.toLowerCase().includes("failed to fetch")) {
-      throw new Error("Network error when contacting TTS server. Make sure the backend (server/index.mjs) is running on port 3000 and that VITE_API_BASE_URL is set correctly.");
+      // If the underlying error contains Attempted URLs, include them for debugging
+      const attempted = /Attempted URLs: (.*)$/i.exec(message);
+      const urls = attempted ? attempted[1] : undefined;
+      const hint = urls
+        ? `Network error when contacting TTS server. Attempted: ${urls}. Make sure the backend (server/index.mjs) is running and that VITE_API_BASE_URL is set correctly.`
+        : `Network error when contacting TTS server. Make sure the backend (server/index.mjs) is running on port 3000 and that VITE_API_BASE_URL is set correctly.`;
+      throw new Error(hint);
     }
     throw err;
   }

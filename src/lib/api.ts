@@ -15,9 +15,12 @@ function buildCandidates(path: string) {
   }
   // relative path first to allow Vite dev proxy
   candidates.push(path);
-  // explicit localhost fallback
-  candidates.push(`http://localhost:3000${path.startsWith("/") ? "" : "/"}${path}`);
-  // configured base url last
+  // explicit localhost fallback — try a small range of common dev ports in case the
+  // backend auto-incremented (server/index.mjs will try next port if 3000 is busy)
+  for (let p = 3000; p <= 3010; p++) {
+    candidates.push(`http://localhost:${p}${path.startsWith("/") ? "" : "/"}${path}`);
+  }
+  // configured base url last (if present)
   if (BASE_URL) candidates.push(`${BASE_URL}${path.startsWith("/") ? "" : "/"}${path}`);
   return candidates;
 }

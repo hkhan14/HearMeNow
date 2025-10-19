@@ -1,3 +1,4 @@
+import React, { forwardRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface TextInputProps {
@@ -6,7 +7,8 @@ interface TextInputProps {
   maxLength?: number;
 }
 
-const TextInput = ({ value, onChange, maxLength = 500 }: TextInputProps) => {
+// Forward the native textarea ref so parent can read/set caret position
+const TextInput = forwardRef<HTMLTextAreaElement, TextInputProps>(({ value, onChange, maxLength = 500 }, ref) => {
   return (
     <div className="space-y-2">
       <label htmlFor="message-input" className="text-sm font-medium text-foreground">
@@ -14,6 +16,7 @@ const TextInput = ({ value, onChange, maxLength = 500 }: TextInputProps) => {
       </label>
       <Textarea
         id="message-input"
+        ref={ref}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="Type what you want to say..."
@@ -28,6 +31,8 @@ const TextInput = ({ value, onChange, maxLength = 500 }: TextInputProps) => {
       </div>
     </div>
   );
-};
+});
+
+TextInput.displayName = "TextInput";
 
 export default TextInput;

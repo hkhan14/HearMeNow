@@ -50,3 +50,11 @@ The frontend dev server proxies `/api/*` to the backend.
 - 401/403 from ElevenLabs: Check `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID`.
 - CORS errors: The backend enables CORS for dev; ensure requests go to `/api` and the proxy is active.
 - No audio: Check network tab for `/api/tts` response; ensure `Content-Type` is audio and not JSON error.
+
+### Common issue: "Network error when contacting TTS server"
++
+
+- The backend defaults to port 3000 but will automatically try the next port if 3000 is in use. If you see a popup saying "Network error when contacting TTS server", the frontend now attempts a small range of localhost ports (3000-3010) before failing. The error message will include the exact attempted URLs to help debugging.
+- Ensure you start the backend with `npm run dev:server` (or `npm run dev:full` to start both). If you prefer a fixed port, set `PORT=3000` in `.env.local`.
+- If you're running the frontend on a different machine or container, set `VITE_API_BASE_URL` in `.env.local` to `http://<host>:<port>` so the Vite proxy routes `/api` correctly.
+

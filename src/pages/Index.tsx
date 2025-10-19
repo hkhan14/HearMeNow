@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Hero from "@/components/Hero";
 import TextInput from "@/components/TextInput";
@@ -95,6 +95,8 @@ const Index = () => {
     }
   };
 
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
   return (
     <div className="min-h-screen bg-background">
       <Hero />
@@ -110,7 +112,7 @@ const Index = () => {
         </div>
 
         <div className="bg-card rounded-3xl shadow-xl border p-6 md:p-8 space-y-6 animate-slide-up">
-          <TextInput value={message} onChange={setMessage} />
+          <TextInput ref={textareaRef} value={message} onChange={setMessage} />
           
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div className="flex-1">
@@ -144,14 +146,48 @@ const Index = () => {
         </div>
 
         <div className="animate-slide-up" style={{ animationDelay: "0.2s" }}>
-          <QuickPhrases onPhraseSelect={handlePhraseSelect} />
-        </div>
+          <QuickPhrases
+            onPhraseSelect={handlePhraseSelect}
+            onPhraseInsert={(phrase) => {
+              try {
+                const ta = textareaRef.current;
+                if (!ta) {
+                  // fallback to append
+                  const needsSpace = message.length > 0 && !message.endsWith(" ");
+                  const next = `${message}${needsSpace ? " " : ""}${phrase}`;
+                  setMessage(next);
+                  toast({ title: "Phrase Inserted", description: "Appended quick phrase" });
+                  return;
+                }
 
-        <div className="text-center p-6 bg-muted/50 rounded-2xl animate-slide-up" style={{ animationDelay: "0.3s" }}>
-          <p className="text-sm text-muted-foreground">
-            <strong>Coming Soon:</strong> Auto emotion detection from your text,
-            voice customization, and multi-language support
-          </p>
+                // Use selectionStart/selectionEnd to insert at caret
+                const start = ta.selectionStart ?? message.length;
+                const end = ta.selectionEnd ?? message.length;
+                const before = message.slice(0, start);
+                const after = message.slice(end);
+                const needsSpaceBefore = before.length > 0 && !before.endsWith(" ");
+                const insertText = `${needsSpaceBefore ? " " : ""}${phrase}`;
+                const next = `${before}${insertText}${after}`;
+                setMessage(next);
+
+                // After state update, restore caret to after inserted phrase
+                // Use setTimeout to wait for DOM update
+                setTimeout(() => {
+                  const pos = (before + insertText).length;
+                  ta.focus();
+                  ta.setSelectionRange(pos, pos);
+                }, 0);
+
+                toast({ title: "Phrase Inserted", description: "Inserted quick phrase at cursor" });
+              } catch (err) {
+                // fallback append
+                const needsSpace = message.length > 0 && !message.endsWith(" ");
+                const next = `${message}${needsSpace ? " " : ""}${phrase}`;
+                setMessage(next);
+                toast({ title: "Phrase Inserted", description: "Appended quick phrase" });
+              }
+            }}
+          />
         </div>
       </main>
 

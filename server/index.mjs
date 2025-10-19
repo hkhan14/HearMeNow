@@ -264,10 +264,35 @@ app.post("/api/detect-emotion", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`API server listening on http://localhost:${PORT}`);
-});
+// Robust startup: attempt to listen and on EADDRINUSE try the next port once.
+function startServer(port, triedPorts = new Set()) {
+  if (triedPorts.has(port)) {
+    // eslint-disable-next-line no-console
+    console.error(`Unable to start server: ports attempted: ${[...triedPorts].join(", ")}`);
+    process.exit(1);
+  }
+
+  const server = app.listen(port, () => {
+    // eslint-disable-next-line no-console
+    console.log(`API server listening on http://localhost:${port}`);
+  });
+
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      // eslint-disable-next-line no-console
+      console.warn(`Port ${port} already in use. Trying port ${port + 1}...`);
+      triedPorts.add(port);
+      // allow time for OS to release resources if needed
+      setTimeout(() => startServer(port + 1, triedPorts), 300);
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.error("Server error:", err);
+    process.exit(1);
+  });
+}
+
+startServer(Number(PORT));
 
 // Lightweight debug endpoint to confirm server environment (no secrets exposed)
 app.get("/api/debug", (req, res) => {
