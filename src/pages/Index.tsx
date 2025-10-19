@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Hero from "@/components/Hero";
 import TextInput from "@/components/TextInput";
@@ -6,12 +6,22 @@ import EmotionSelector, { Emotion } from "@/components/EmotionSelector";
 import AudioPlayer from "@/components/AudioPlayer";
 import QuickPhrases from "@/components/QuickPhrases";
 import Impact from "@/components/Impact";
+import { synthesizeSpeech } from "@/lib/tts";
 
 const Index = () => {
   const [message, setMessage] = useState("");
-  const [selectedEmotion, setSelectedEmotion] = useState<Emotion>("neutral");
+  const [selectedEmotion, setSelectedEmotion] = useState<Emotion>(() => {
+    const saved = localStorage.getItem("selectedEmotion") as Emotion | null;
+    return saved ?? "neutral";
+  });
+  // Persist selected emotion
+  useEffect(() => {
+    localStorage.setItem("selectedEmotion", selectedEmotion);
+  }, [selectedEmotion]);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const { toast } = useToast();
 
   const handleGenerate = async () => {
@@ -27,25 +37,23 @@ const Index = () => {
     setIsGenerating(true);
 
     try {
-      // TODO: Integrate with ElevenLabs API via backend
-      // For now, simulate generation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      // Call backend TTS which integrates with ElevenLabs
+      const blob = await synthesizeSpeech({ text: message, emotion: selectedEmotion });
+      // Create object URL and play
+      const url = URL.createObjectURL(blob);
+      setAudioUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return url;
+      });
       setIsPlaying(true);
-      
       toast({
         title: "Voice Generated!",
         description: `Your message with ${selectedEmotion} emotion is ready`,
       });
-
-      // Simulate playback duration
-      setTimeout(() => {
-        setIsPlaying(false);
-      }, 3000);
     } catch (error) {
       toast({
         title: "Generation Failed",
-        description: "There was an error generating your voice. Please try again.",
+        description: error instanceof Error ? error.message : "There was an error generating your voice. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -88,6 +96,9 @@ const Index = () => {
             isPlaying={isPlaying}
             onGenerate={handleGenerate}
             disabled={!message.trim()}
+            emotion={selectedEmotion}
+            audioSrc={audioUrl ?? undefined}
+            onPlaybackEnd={() => setIsPlaying(false)}
           />
         </div>
 
