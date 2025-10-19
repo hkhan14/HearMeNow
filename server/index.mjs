@@ -15,7 +15,7 @@ app.use(express.json({ limit: "2mb" }));
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, provider: "elevenlabs", hasKey: Boolean(process.env.ELEVENLABS_API_KEY) });
 });
-
+ 
 // Map our UI emotions to optional ElevenLabs voice settings (tweak as needed)
 function settingsForEmotion(emotion) {
   /**
@@ -299,4 +299,4 @@ app.get("/api/debug", (req, res) => {
   const hasEleven = Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID);
   const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
   return res.json({ ok: true, port: PORT, provider: { elevenlabs: hasEleven, openai: hasOpenAI } });
-});
+}); 
