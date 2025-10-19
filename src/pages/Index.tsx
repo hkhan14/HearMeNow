@@ -7,6 +7,8 @@ import AudioPlayer from "@/components/AudioPlayer";
 import QuickPhrases from "@/components/QuickPhrases";
 import Impact from "@/components/Impact";
 import { synthesizeSpeech } from "@/lib/tts";
+import { detectEmotion } from "@/lib/emotion";
+import { Button } from "@/components/ui/button";
 
 const Index = () => {
   const [message, setMessage] = useState("");
@@ -20,6 +22,7 @@ const Index = () => {
   }, [selectedEmotion]);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const { toast } = useToast();
@@ -69,6 +72,29 @@ const Index = () => {
     });
   };
 
+  const handleAutoDetect = async () => {
+    if (!message.trim()) {
+      toast({ title: "Message Required", description: "Type a message first to detect emotion", variant: "destructive" });
+      return;
+    }
+
+    setIsDetecting(true);
+    try {
+      const res = await detectEmotion(message);
+      if (res && res.emotion) {
+        const next = res.emotion as Emotion;
+        setSelectedEmotion(next);
+        toast({ title: "Emotion Detected", description: `Auto-detected: ${next}` });
+      } else {
+        toast({ title: "Detection Failed", description: "Could not detect emotion", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Detection Error", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Hero />
@@ -86,10 +112,25 @@ const Index = () => {
         <div className="bg-card rounded-3xl shadow-xl border p-6 md:p-8 space-y-6 animate-slide-up">
           <TextInput value={message} onChange={setMessage} />
           
-          <EmotionSelector 
-            selectedEmotion={selectedEmotion} 
-            onEmotionSelect={setSelectedEmotion}
-          />
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+            <div className="flex-1">
+              <EmotionSelector 
+                selectedEmotion={selectedEmotion} 
+                onEmotionSelect={setSelectedEmotion}
+              />
+            </div>
+            <div className="md:ml-6 flex items-start">
+              <Button 
+                variant="ghost"
+                size="default"
+                onClick={handleAutoDetect}
+                disabled={isDetecting || !message.trim()}
+                className="whitespace-nowrap"
+              >
+                {isDetecting ? "Detecting..." : "Auto-detect Emotion"}
+              </Button>
+            </div>
+          </div>
           
           <AudioPlayer
             isGenerating={isGenerating}

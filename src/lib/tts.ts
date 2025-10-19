@@ -13,10 +13,20 @@ export interface SynthesizeOptions {
  * Expected backend route: POST /api/tts -> returns audio blob.
  */
 export async function synthesizeSpeech({ text, emotion, voiceId, format = "audio/mpeg" }: SynthesizeOptions) {
-  const blob = await apiFetchBlob("/api/tts", {
-    method: "POST",
-    body: { text, emotion, voiceId, format },
-    headers: { Accept: format },
-  });
-  return blob;
+  try {
+    const blob = await apiFetchBlob("/api/tts", {
+      method: "POST",
+      body: { text, emotion, voiceId, format },
+      headers: { Accept: format },
+    });
+    return blob;
+  } catch (err) {
+    // Normalize error for UI consumption
+    const message = err instanceof Error ? err.message : String(err);
+    // Provide actionable hint if it's a network issue
+    if (message.toLowerCase().includes("network error") || message.toLowerCase().includes("failed to fetch")) {
+      throw new Error("Network error when contacting TTS server. Make sure the backend (server/index.mjs) is running on port 3000 and that VITE_API_BASE_URL is set correctly.");
+    }
+    throw err;
+  }
 }

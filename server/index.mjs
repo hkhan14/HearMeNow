@@ -80,6 +80,9 @@ app.post("/api/tts", async (req, res) => {
       // model_id: "eleven_monolingual_v1", // optionally configure
       voice_settings: settingsForEmotion(emotion),
     };
+    // Log the outgoing TTS request (no API key printed)
+    // eslint-disable-next-line no-console
+    console.log("/api/tts -> calling ElevenLabs TTS", { voiceId: resolvedVoiceId, emotion, format });
 
     const resp = await fetch(url, {
       method: "POST",
@@ -93,17 +96,25 @@ app.post("/api/tts", async (req, res) => {
 
     if (!resp.ok) {
       const textErr = await resp.text().catch(() => "");
-      return res.status(resp.status).json({ error: textErr || resp.statusText });
+      // Log error details to server console for debugging
+      // eslint-disable-next-line no-console
+      console.error("ElevenLabs TTS error", { status: resp.status, statusText: resp.statusText, body: textErr });
+      return res.status(resp.status).json({ error: textErr || resp.statusText, provider: "elevenlabs" });
     }
 
     const arrayBuffer = await resp.arrayBuffer();
     const buf = Buffer.from(arrayBuffer);
     res.setHeader("Content-Type", format);
     res.setHeader("Content-Length", String(buf.length));
+    // eslint-disable-next-line no-console
+    console.log(`/api/tts -> ElevenLabs OK, returning ${buf.length} bytes`);
     return res.status(200).send(buf);
   } catch (err) {
     const message = err?.message || "Unknown error";
-    return res.status(500).json({ error: message });
+    // Log full error for debugging
+    // eslint-disable-next-line no-console
+    console.error("/api/tts caught error:", err);
+    return res.status(500).json({ error: message, stack: err?.stack });
   }
 });
 
@@ -114,6 +125,8 @@ app.get("/api/voices", async (req, res) => {
     if (!apiKey) return res.status(500).json({ error: "ELEVENLABS_API_KEY not configured" });
 
     const url = "https://api.elevenlabs.io/v1/voices";
+    // eslint-disable-next-line no-console
+    console.log("/api/voices -> calling ElevenLabs voices list");
     const resp = await fetch(url, {
       headers: {
         "xi-api-key": apiKey,
@@ -122,6 +135,8 @@ app.get("/api/voices", async (req, res) => {
     });
     if (!resp.ok) {
       const textErr = await resp.text().catch(() => "");
+      // eslint-disable-next-line no-console
+      console.error("ElevenLabs voices error", { status: resp.status, statusText: resp.statusText, body: textErr });
       return res.status(resp.status).json({ error: textErr || resp.statusText });
     }
     const data = await resp.json();
@@ -134,7 +149,129 @@ app.get("/api/voices", async (req, res) => {
   }
 });
 
+// Emotion detection: uses OpenAI (if configured) to classify a short piece of text
+// into one of the supported emotions: happy, sad, angry, calm, surprised, excited, neutral
+app.post("/api/detect-emotion", async (req, res) => {
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== "string") {
+      return res.status(400).json({ error: "Missing 'text' in request body" });
+    }
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+    // Allow explicitly disabling OpenAI calls (useful when quota is exhausted)
+    if (process.env.DISABLE_OPENAI_DETECT === "1" || process.env.DISABLE_OPENAI_DETECT === "true") {
+      // eslint-disable-next-line no-console
+      console.log("OpenAI detection disabled via DISABLE_OPENAI_DETECT; using heuristic fallback.");
+      return res.json({ emotion: fallback(text), provider: "disabled_fallback", reason: "disabled_by_env" });
+    }
+
+    // Local fallback heuristic (very simple) if no OpenAI key is available
+    const fallback = (t) => {
+      const lc = t.toLowerCase();
+      if (lc.includes("happy") || lc.includes("thank") || lc.includes("love") || lc.includes("great") || lc.includes("amazing")) return "happy";
+      if (lc.includes("sorry") || lc.includes("sad") || lc.includes("depressed") || lc.includes("unhappy")) return "sad";
+      if (lc.includes("angry") || lc.includes("hate") || lc.includes("frustrat")) return "angry";
+      if (lc.includes("calm") || lc.includes("relax") || lc.includes("peace")) return "calm";
+      if (lc.includes("wow") || lc.includes("surpris") || lc.includes("what!?")) return "surprised";
+      if (lc.includes("excited") || lc.includes("thrill") || lc.includes("pump")) return "excited";
+      return "neutral";
+    };
+
+    if (!openaiKey) {
+      return res.json({ emotion: fallback(text), provider: "fallback" });
+    }
+
+    // Call OpenAI completions/chat to classify the emotion into one of our labels.
+    // We keep the prompt strict so the model returns only the label.
+    const prompt = `Classify the emotional tone of the following text into one of these labels: happy, sad, angry, calm, surprised, excited, neutral. Return only the single label without punctuation.\n\nText: "${text.replace(/"/g, '\\"')}"\n\nLabel:`;
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${openaiKey}`,
+      },
+      body: JSON.stringify({ model, input: prompt }),
+    });
+
+    if (!response.ok) {
+      const txt = await response.text().catch(() => "");
+      // Try to parse error JSON to detect quota/insufficient_quota
+      let parsedErr = null;
+      try {
+        parsedErr = JSON.parse(txt || "null");
+      } catch (e) {
+        // ignore
+      }
+
+      const isQuota = response.status === 429 ||
+        (parsedErr && ((parsedErr.error && parsedErr.error.type && parsedErr.error.type === "insufficient_quota") ||
+          (parsedErr.error && parsedErr.error.code && parsedErr.error.code === "insufficient_quota") ||
+          (parsedErr.error && parsedErr.error.message && typeof parsedErr.error.message === "string" && parsedErr.error.message.toLowerCase().includes("quota"))));
+
+      // Also treat server errors as fallback to keep UX working
+      const isServerError = response.status >= 500;
+
+      if (isQuota || isServerError) {
+        // Log and fall back to local heuristic to avoid breaking UX when quota exceeded
+        // eslint-disable-next-line no-console
+        console.warn("OpenAI quota/server error detected; falling back to heuristic for emotion detection", { status: response.status, parsedErr, txt });
+        return res.json({ emotion: fallback(text), provider: "openai_fallback", reason: isQuota ? "insufficient_quota" : "server_error", raw: parsedErr || txt });
+      }
+
+      return res.status(response.status).json({ error: txt || response.statusText });
+    }
+
+    const data = await response.json();
+    // Attempt to find the returned text
+    let label = null;
+    try {
+      // new Responses API may put output in data.output[0].content[0].text or data.output_text
+      if (data.output_text) label = data.output_text;
+      else if (Array.isArray(data.output) && data.output[0] && data.output[0].content) {
+        const content = data.output[0].content.find((c) => c.type === "output_text" || c.type === "text");
+        if (content) label = content.text || content; 
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // fallback to parsing choices if present (older chat completions style)
+    if (!label && data.choices && data.choices[0] && data.choices[0].message) {
+      label = data.choices[0].message.content;
+    }
+
+    if (!label || typeof label !== "string") {
+      return res.json({ emotion: fallback(text), provider: "openai", raw: data });
+    }
+
+    // Normalize label to one of allowed tokens
+    const normalized = label.trim().toLowerCase().match(/happy|sad|angry|calm|surpris|excited|neutral/);
+    let emotion = "neutral";
+    if (normalized) {
+      const found = normalized[0];
+      if (found.startsWith("surpris")) emotion = "surprised";
+      else emotion = found === "excited" ? "excited" : found === "happy" ? "happy" : found === "sad" ? "sad" : found === "angry" ? "angry" : found === "calm" ? "calm" : "neutral";
+    }
+
+    return res.json({ emotion, provider: "openai" });
+  } catch (err) {
+    const message = err?.message || "Unknown error";
+    return res.status(500).json({ error: message });
+  }
+});
+
 app.listen(PORT, () => {
   // eslint-disable-next-line no-console
   console.log(`API server listening on http://localhost:${PORT}`);
+});
+
+// Lightweight debug endpoint to confirm server environment (no secrets exposed)
+app.get("/api/debug", (req, res) => {
+  const hasEleven = Boolean(process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID);
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  return res.json({ ok: true, port: PORT, provider: { elevenlabs: hasEleven, openai: hasOpenAI } });
 });
